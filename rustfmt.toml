@@ -1,0 +1,25 @@
+tab_spaces = 2
+
+#report_todo = "Always"
+#report_fixme = "Always"
+
+use_try_shorthand = true
+
+ideal_width = 100
+fn_call_width = 100
+fn_brace_style = "PreferSameLine"
+where_density = "Compressed"
+single_line_if_else_max_width = 100
+
+normalize_comments = false
+
+where_trailing_comma = false
+struct_trailing_comma = "Never"
+struct_lit_trailing_comma = "Never"
+enum_trailing_comma = false
+match_block_trailing_comma = false
+match_wildcard_trailing_comma = false
+trailing_comma = "Never"
+
+fn_call_style = "Block"
+closure_block_indent_threshold = 0

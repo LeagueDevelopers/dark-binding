@@ -1,0 +1,42 @@
+[package]
+name = "dark-binding"
+version = "0.1.0"
+authors = ["S. Coimbra"]
+build = "build.rs"
+
+[dependencies]
+clap = "2"
+regex = "^0.2"
+lazy_static = "^0.2"
+serde = "1"
+serde_json = "*"
+serde_derive = "1"
+reqwest = "^0.8"
+rand = "0.3"
+tokio-core = "^0.1.10"
+systray = { git = "https://github.com/s-coimbra21/systray-rs.git", branch = "master" }
+
+[target.'cfg(windows)'.build-dependencies]
+winres = {path = "dependencies/winres" }
+
+[dependencies.native-tls]
+path = "dependencies/native-tls"
+
+[dependencies.websocket]
+path = "dependencies/websocket"
+features = ["async-ssl"]
+
+[dependencies.error-chain]
+version = "0.11"
+default-features = false  # disable pulling in backtrace
+
+[profile.dev]
+lto = false
+debug = true
+debug-assertions = true
+
+[profile.release]
+lto = true
+
+[features]
+nightly = []

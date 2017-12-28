@@ -1,0 +1,10 @@
+.vscode/
+.idea/
+
+node_modules/
+test.js
+
+callgrind.out.justfile
+target/
+
+*.bk
