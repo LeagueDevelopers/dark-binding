@@ -6,11 +6,11 @@ build = "build.rs"
 
 [dependencies]
 clap = "2"
-regex = "^0.2"
 lazy_static = "^0.2"
 serde = "1"
 serde_json = "*"
 serde_derive = "1"
+toml = "0.4"
 reqwest = "^0.8"
 rand = "0.3"
 tokio-core = "^0.1.10"
@@ -25,6 +25,10 @@ path = "dependencies/native-tls"
 [dependencies.websocket]
 path = "dependencies/websocket"
 features = ["async-ssl"]
+
+[dependencies.regex]
+version = "^0.2"
+features = ["pattern"]
 
 [dependencies.error-chain]
 version = "0.11"

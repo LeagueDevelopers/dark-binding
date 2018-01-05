@@ -1,19 +1,22 @@
-use std::fs;
+use std::{fs, os};
+use std::io::Write;
 use std::borrow::Borrow;
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 use reqwest::Response;
 use serde::ser::Serialize;
-use native_tls::{TlsConnector, Certificate};
-use websocket::{WebSocketError, Message, OwnedMessage};
+use native_tls::{Certificate, TlsConnector};
+use websocket::{Message, OwnedMessage, WebSocketError};
 use websocket::ClientBuilder;
-use websocket::futures::{Future, Stream, Sink};
-use websocket::header::{Headers, Authorization, Basic};
+use websocket::futures::{Future, Sink, Stream};
+use websocket::header::{Authorization, Basic, Headers};
 use websocket::futures::sync::mpsc::UnboundedReceiver;
 use tokio_core::reactor::Core;
 
 use CERTIFICATE;
 use errors::*;
 
+use league_client::DEFAULT_GROUPS_TOML;
 use league_client::structs::*;
 use league_client::util::*;
 use league_client::websocket::LeagueSocketHandler;
@@ -21,6 +24,7 @@ use league_client::websocket::LeagueSocketHandler;
 pub enum LeagueClientFn {
   BackupConfig,
   RestoreConfig,
+  ReloadGroups,
   Shutdown,
   Message(OwnedMessage)
 }
@@ -36,16 +40,20 @@ pub struct LeagueClient {
   credentials: Credentials,
   config_folder: PathBuf,
   region: Option<String>,
-  local_summoner: Option<LocalSummoner>
+  local_summoner: Option<LocalSummoner>,
+  champion_names: HashMap<String, i32>,
+  champion_groups: HashMap<i32, String>
 }
 
 impl LeagueClient {
-  pub fn new(credentials: Credentials, install_directory: String) -> LeagueClient {
+  pub fn new(credentials: Credentials, config_directory: PathBuf) -> LeagueClient {
     LeagueClient {
       credentials: credentials,
-      config_folder: [install_directory, "Config".to_owned()].iter().collect(),
+      config_folder: config_directory,
       region: None,
-      local_summoner: None
+      local_summoner: None,
+      champion_names: HashMap::new(),
+      champion_groups: HashMap::new()
     }
   }
 
@@ -63,20 +71,44 @@ impl LeagueClient {
   pub fn local_summoner(&self) -> Option<LocalSummoner> {
     match self.local_summoner {
       Some(ref s) => Some(s.clone()),
-      _ => None,
+      _ => None
     }
   }
 
-  fn create_config(&self, config_path: &Path) -> Result<()> {
-    self.restore_config()?;
-    let persisted_settings_loc = self.persisted_settings();
+  /// Reload champion group associations from file
+  fn update_champion_groups(&mut self) -> Result<()> {
+    let groups_toml = self.config_folder.join(".dark-binding").join("groups.toml");
 
-    ensure_dir(config_path)?;
-    fs::copy(persisted_settings_loc, config_path);
+    if !groups_toml.exists() {
+      create_default_groups_toml(groups_toml.parent().unwrap());
+    }
+
+    let groups = read_toml(&groups_toml)?.groups;
+
+    self.champion_groups.clear();
+
+    groups.iter().for_each(|(group_name, champions)| {
+      champions
+        .iter()
+        .map(|name| normalize_champion_name(name))
+        .for_each(|champion| {
+          if let Some(champion_id) = self.champion_names.get(&champion) {
+            debug!(
+              "Adding {} (ID {}) to group {}",
+              champion, champion_id, group_name
+            );
+            self
+              .champion_groups
+              .insert(*champion_id, group_name.to_owned());
+          }
+        });
+    });
 
     Ok(())
   }
 
+  /// Backs up the existing PersistedSettings.json if it is the default one
+  /// ex: doesn't belong to any group
   pub fn backup_config(&self) -> Result<()> {
     let persisted_settings = self.persisted_settings();
     let backup = self.persisted_settings_backup();
@@ -88,6 +120,8 @@ impl LeagueClient {
     Ok(())
   }
 
+  /// Restores the original PersistedSettings.json and sync any non-keybind
+  /// settings changes
   pub fn restore_config(&self) -> Result<()> {
     let current_settings_loc = self.persisted_settings();
     let backup_loc = self.persisted_settings_backup();
@@ -95,11 +129,13 @@ impl LeagueClient {
     let real_loc = match current_settings_loc.read_link() {
       Ok(location) => location,
       _ => {
-        // it's not one of our hard links, nothing left to do
+        // it's not one of our links, nothing left to do
         return Ok(());
       }
     };
 
+    // Something went wrong and the backup got deleted, make whatever
+    // config is currently loaded the permanent one
     if !backup_loc.exists() {
       fs::remove_file(&current_settings_loc)?;
       fs::copy(real_loc, current_settings_loc)?;
@@ -131,24 +167,32 @@ impl LeagueClient {
     };
 
     fs::remove_file(&current_settings_loc);
-    fs::rename(&backup_loc, &current_settings_loc)?;
+    fs::rename(backup_loc, current_settings_loc)?;
 
     Ok(())
   }
 
-  pub fn load_champion_config(&self, champion_id: u32) -> Result<()> {
+  /// Load config for a champion if it belongs to a group
+  ///
+  /// Creates a new config file if it doesn't exist already
+  pub fn load_champion_config(&self, champion_id: i32) -> Result<()> {
     self.restore_config()?;
 
-    let mut cfg_file_loc = self.config_folder.join(".dark-binding");
+    let group_name = match self.champion_groups.get(&champion_id) {
+      Some(n) => n,
+      _ => return Ok(())
+    };
 
-    cfg_file_loc.set_file_name(champion_id.to_string());
+    let mut cfg_file_loc = self.config_folder.join(".dark-binding");
+    let persisted_settings_loc = self.persisted_settings();
+
+    cfg_file_loc.set_file_name(group_name);
     cfg_file_loc.set_extension("json");
 
     if !cfg_file_loc.exists() {
-      self.create_config(&cfg_file_loc);
+      ensure_dir(&cfg_file_loc)?;
+      fs::copy(&persisted_settings_loc, &cfg_file_loc);
     }
-
-    let persisted_settings_loc = self.persisted_settings();
 
     self.backup_config()?;
 
@@ -156,36 +200,67 @@ impl LeagueClient {
       fs::remove_file(&persisted_settings_loc);
     }
 
-    fs::hard_link(cfg_file_loc, persisted_settings_loc);
+    if cfg!(windows) {
+      os::windows::fs::symlink_file(cfg_file_loc, persisted_settings_loc)?;
+    } /*else {
+      os::unix::fs::symlink(cfg_file_loc, persisted_settings_loc)?;
+    }*/
 
     Ok(())
   }
 
-  fn update_local_summoner(&mut self) -> Result<()> {
-    let local_summoner: LocalSummoner =
+  fn update_local_structs(&mut self) -> Result<()> {
+    let local_summoner: LocalSummoner = self
+      .get(
+        "/lol-summoner/v1/current-summoner",
+        None::<&[(String, String)]>
+      )?
+      .json()
+      .chain_err(|| "unable to get local summoner, check if you're logged in")?;
+
+
+    let champions: Vec<ChampionMinimal> = self
+      .get(
+        &format!(
+          "/lol-champions/v1/inventories/{}/champions-minimal",
+          &local_summoner.summoner_id
+        ),
+        None::<&[(String, String)]>
+      )?
+      .json()
+      .chain_err(|| "unable to get champion list from client")?;
+
+    champions.iter().filter(|e| e.id > 0).for_each(|e| {
       self
-        .get("/lol-summoner/v1/current-summoner", None::<&[(String, String)]>)?
-        .json()
-        .chain_err(|| "unable to get local summoner, check if you're logged in")?;
+        .champion_names
+        .insert(normalize_champion_name(&e.alias), e.id);
+    });
 
     self.local_summoner = Some(local_summoner);
+    self.update_champion_groups()?;
 
     Ok(())
   }
 
   fn get<I, K, V>(&self, endpoint: &str, query: Option<I>) -> Result<Response>
-    where I: IntoIterator,
-          I::Item: Borrow<(K, V)>,
-          K: AsRef<str>,
-          V: AsRef<str> {
-    base_get(endpoint, &self.credentials, query).and_then(|res| res.error_for_status().map_err(|e| e.into()))
+  where
+    I: IntoIterator,
+    I::Item: Borrow<(K, V)>,
+    K: AsRef<str>,
+    V: AsRef<str>
+  {
+    base_get(endpoint, &self.credentials, query)
+      .and_then(|res| res.error_for_status().map_err(|e| e.into()))
   }
 
   fn post<T: Serialize>(&self, endpoint: &str, json: &T) -> Result<Response> {
-    base_post(endpoint, &self.credentials, json).and_then(|res| res.error_for_status().map_err(|e| e.into()))
+    base_post(endpoint, &self.credentials, json)
+      .and_then(|res| res.error_for_status().map_err(|e| e.into()))
   }
 
   fn connect(&mut self, rx: UnboundedReceiver<LeagueClientFn>) -> Result<()> {
+    self.update_local_structs();
+
     let mut core = Core::new().unwrap();
 
     let tls_connector = TlsConnector::builder()
@@ -199,14 +274,10 @@ impl LeagueClient {
 
       let mut headers = Headers::new();
 
-      headers.set(
-        Authorization(
-          Basic {
-            username: "riot".to_owned(),
-            password: Some(c.token.to_owned())
-          }
-        )
-      );
+      headers.set(Authorization(Basic {
+        username: "riot".to_owned(),
+        password: Some(c.token.to_owned())
+      }));
 
       (url, headers)
     };
@@ -219,48 +290,47 @@ impl LeagueClient {
       .custom_headers(&headers)
       .async_connect_secure(tls_connector, &core.handle())
       .and_then(|(duplex, _)| duplex.send(Message::text("[5,\"OnJsonApiEvent\"]").into()))
-      .and_then(
-        |duplex| {
-          let (_s, stream) = duplex.split();
+      .and_then(|duplex| {
+        let (_s, stream) = duplex.split();
 
-          stream
-            .map(|m| LeagueClientFn::Message(m))
-            .select(rx.map_err(|_| WebSocketError::NoDataAvailable))
-            .for_each(
-              |message| {
-                match message {
-                  LeagueClientFn::BackupConfig => {
-                    self.backup_config().ok();
-                  }
-                  LeagueClientFn::RestoreConfig => {
-                    self.restore_config().ok();
-                  }
-                  LeagueClientFn::Shutdown => {
-                    self.shutdown().ok();
-                    return Err(WebSocketError::NoDataAvailable);
-                  }
-                  LeagueClientFn::Message(m) => {
-                    self.on_message(m);
-                  }
-                  _ => {}
-                };
-
-                Ok(())
+        stream
+          .map(|m| LeagueClientFn::Message(m))
+          .select(rx.map_err(|_| WebSocketError::NoDataAvailable))
+          .for_each(|message| {
+            match message {
+              LeagueClientFn::BackupConfig => {
+                self.backup_config();
               }
-            )
-        }
-      );
+              LeagueClientFn::RestoreConfig => {
+                self.restore_config();
+              }
+              LeagueClientFn::ReloadGroups => {
+                self.update_champion_groups();
+              }
+              LeagueClientFn::Shutdown => {
+                self.shutdown();
+                return Err(WebSocketError::NoDataAvailable);
+              }
+              LeagueClientFn::Message(m) => {
+                self.on_message(m);
+              }
+              _ => {}
+            };
+
+            Ok(())
+          })
+      });
 
     core.run(f)?;
 
     Ok(())
   }
+
   pub fn init(&mut self, rx: UnboundedReceiver<LeagueClientFn>) -> Result<()> {
-    let rso_auth: RSO =
-      self
-        .get("/rso-auth/v1/authorization", None::<&[(String, String)]>)?
-        .json()
-        .chain_err(|| "unable to get summoner region, check if you're logged in")?;
+    let rso_auth: RSO = self
+      .get("/rso-auth/v1/authorization", None::<&[(String, String)]>)?
+      .json()
+      .chain_err(|| "unable to get summoner region, check if you're logged in")?;
 
     debug!("RSO auth successful: {:?}", rso_auth);
 
@@ -274,4 +344,11 @@ impl LeagueClient {
 
     Ok(())
   }
+}
+
+/// Copies the included default groups.toml to the .dark-binding config directory
+fn create_default_groups_toml(path: &Path) -> Result<()> {
+  ensure_dir(path)?;
+
+  Ok(fs::OpenOptions::new().write(true).create(true).open(path)?.write_all(DEFAULT_GROUPS_TOML)?)
 }

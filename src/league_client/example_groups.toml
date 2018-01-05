@@ -1,0 +1,11 @@
+# Format:
+# nameofgroup = ["name of champion", "name of champion", "etc"]
+
+# Names of groups must be unique, if the same champion is on multiple groups, it will get the last one group's key bindings
+# All groups will have bindings based on your current settings
+# If you change a group name, you will lose your bindings for that group
+# Champion names with ticks (Cho'Gath or Kog'Maw) or spaces (Miss Fortune) can be spelled with or without spaces/ticks
+
+[groups]
+# remove the hash (#) on the next line to enable the group
+#example = ["Jinx", "Jhin", "KogMaw"]

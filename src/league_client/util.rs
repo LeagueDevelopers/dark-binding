@@ -8,6 +8,7 @@ use std::process::{Command, Stdio};
 use std::borrow::Borrow;
 use serde::ser::Serialize;
 use serde_json;
+use toml;
 
 use errors::*;
 use HTTP_CLIENT;
@@ -20,6 +21,7 @@ lazy_static! {
   static ref AUTH_REGEX: Regex = Regex::new("--remoting-auth-token=(\\S+)\"").unwrap();
   static ref PORT_REGEX: Regex = Regex::new("--app-port=(\\d+)").unwrap();
   static ref INSTALL_DIR_REGEX: Regex = Regex::new("--install-directory=([^\"]+)\"").unwrap();
+  static ref NAME_SPECIAL_REGEX: Regex = Regex::new(r"[\s|']").unwrap();
 }
 
 pub fn parse_credentials(str_to_match: String) -> Result<(Credentials, String)> {
@@ -146,11 +148,22 @@ pub fn base_post<T: Serialize>(endpoint: &str,
   )
 }
 
+pub fn normalize_champion_name(name: &str) -> String {
+  NAME_SPECIAL_REGEX.replace(&name.to_uppercase(), "").into_owned()
+}
+
 pub fn is_symlink(path: &Path) -> Result<bool> {
   Ok(fs::metadata(path)?.file_type().is_symlink())
 }
 
 pub fn ensure_dir(path: &Path) -> Result<()> {
+  if path.is_file() {
+    return match path.parent() {
+      Some(p) => ensure_dir(p),
+      None => Ok(())
+    }
+  }
+
   if let Err(e) = fs::metadata(path) {
     match e.kind() {
       io::ErrorKind::NotFound => {
@@ -173,8 +186,18 @@ pub fn read_settings_json(path: &Path) -> Result<PersistedSettings> {
   Ok(serde_json::from_str(&s)?)
 }
 
+pub fn read_toml(path: &Path) -> Result<GroupsToml> {
+  let mut s = String::new();
+  File::open(path)
+    .unwrap()
+    .read_to_string(&mut s)
+    .unwrap();
+
+  Ok(toml::from_str(&s)?)
+}
+
 pub fn write_settings_json(path: &Path, content: &PersistedSettings) -> Result<()> {
-  let file = OpenOptions::new().write(true).open(path)?;
+  let file = OpenOptions::new().write(true).create(true).open(path)?;
 
   Ok(serde_json::to_writer_pretty(file, content)?)
 }

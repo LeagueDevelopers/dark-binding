@@ -13,23 +13,24 @@
 #[cfg(feature = "nightly")]
 extern crate alloc_system;
 
-extern crate regex;
-#[macro_use]
-extern crate lazy_static;
 #[macro_use]
 extern crate clap;
 #[macro_use]
 extern crate error_chain;
+#[macro_use]
+extern crate lazy_static;
+extern crate native_tls;
+extern crate rand;
+extern crate regex;
+extern crate reqwest;
 extern crate serde;
-extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
-extern crate reqwest;
-extern crate rand;
-extern crate websocket;
-extern crate tokio_core;
-extern crate native_tls;
+extern crate serde_json;
 extern crate systray;
+extern crate tokio_core;
+extern crate toml;
+extern crate websocket;
 
 mod errors;
 #[macro_use]
@@ -37,7 +38,7 @@ mod util;
 mod league_client;
 
 use clap::{App, Arg};
-use reqwest::{Client, Certificate};
+use reqwest::{Certificate, Client};
 
 use errors::*;
 

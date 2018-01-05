@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use serde_json::Value;
 
 #[serde(rename_all = "camelCase")]
@@ -31,7 +32,14 @@ pub struct RSO {
 pub struct TeamMember {
   #[serde(deserialize_with = "to_str")]
   pub summoner_id: String,
-  pub champion_id: u32
+  pub champion_id: i32
+}
+
+#[serde(rename_all = "camelCase")]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
+pub struct ChampionMinimal {
+  pub id: i32,
+  pub alias: String
 }
 
 #[derive(Debug, PartialEq)]
@@ -66,6 +74,11 @@ pub struct InnerSettingsFile {
 pub struct PersistedSettings {
   pub description: String,
   pub files: Vec<InnerSettingsFile>
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct GroupsToml {
+  pub groups: BTreeMap<String, Vec<String>>
 }
 
 use serde::{Deserialize, Deserializer, de};
