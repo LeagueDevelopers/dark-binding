@@ -12,4 +12,4 @@ The application listens for when you lock in champion select, it then backs up y
 
 ## Roadmap
 
-1. Allow users to define groups of champions instead of making a virtual config for every champions
+~~1. Allow users to define groups of champions instead of making a virtual config for every champion~~
