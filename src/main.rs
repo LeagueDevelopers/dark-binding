@@ -73,7 +73,7 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-  let matches = App::new(env!("CARGO_PKG_NAME"))
+  let _matches = App::new(env!("CARGO_PKG_NAME"))
     .version(crate_version!())
     .arg(
       Arg::with_name("no-check-update")

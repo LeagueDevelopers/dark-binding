@@ -49,7 +49,7 @@ pub fn run() {
             let groups_toml = config_dir.clone();
             let sender_0 = sender_0.clone();
 
-            let guard = thread::spawn(move || {
+            thread::spawn(move || {
               let child = Command::new("notepad.exe")
                 .arg(&groups_toml.to_str().unwrap())
                 .spawn();
@@ -107,7 +107,7 @@ pub fn run() {
 
       let tray_sender = tray.wait_for_message();
 
-      let result = client.init(rx);
+      let _result = client.init(rx);
 
       tray_sender.send(SystrayEvent::Quit).ok();
 

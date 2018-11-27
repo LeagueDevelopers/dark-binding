@@ -1,5 +1,3 @@
-#![allow(unused_doc_comment)]
-
 use serde_json;
 use websocket;
 use reqwest;

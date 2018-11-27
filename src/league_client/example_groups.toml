@@ -1,8 +1,9 @@
 # Format:
 # nameofgroup = ["name of champion", "name of champion", "etc"]
 
-# Names of groups must be unique, if the same champion is on multiple groups, it will get the last one group's key bindings
-# All groups will have bindings based on your current settings
+# Names of groups must be unique, if the same champion is on multiple groups, it will get the last group's key bindings
+# The first time you play with a key binding group, it will inherit your current league settings
+# Only keybinding changes are persisted to the group, if you change something else (e.g. video settings), it will apply to all groups
 # If you change a group name, you will lose your bindings for that group
 # Champion names with ticks (Cho'Gath or Kog'Maw) or spaces (Miss Fortune) can be spelled with or without spaces/ticks
 

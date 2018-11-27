@@ -102,7 +102,7 @@ pub trait LeagueSocketHandler {
 
 impl LeagueSocketHandler for LeagueClient {
   fn handle_champ_select_v1_update(&mut self, data: Value) -> Result<()> {
-    debug!("{:?}", data);
+    // debug!("{:?}", data);
     let update: ChampionSelectSessionUpdate = from_value(data)?;
 
     if update.timer.phase == ChampionSelectTimerPhase::Finalization {

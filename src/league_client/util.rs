@@ -10,7 +10,6 @@ use serde::ser::Serialize;
 use serde_json;
 use toml;
 
-use errors::*;
 use HTTP_CLIENT;
 
 use league_client::*;
@@ -133,20 +132,20 @@ pub fn base_get<I, K, V>(endpoint: &str,
   )
 }
 
-pub fn base_post<T: Serialize>(endpoint: &str,
-                               credentials: &Credentials,
-                               json: &T)
-                               -> Result<Response> {
-  let uri: Url = build_uri(endpoint, credentials, None::<&[(String, String)]>)?;
+// pub fn base_post<T: Serialize>(endpoint: &str,
+//                                credentials: &Credentials,
+//                                json: &T)
+//                                -> Result<Response> {
+//   let uri: Url = build_uri(endpoint, credentials, None::<&[(String, String)]>)?;
 
-  Ok(
-    HTTP_CLIENT
-      .post(uri)
-      .json(json)
-      .basic_auth("riot", Some(credentials.token.to_owned()))
-      .send()?
-  )
-}
+//   Ok(
+//     HTTP_CLIENT
+//       .post(uri)
+//       .json(json)
+//       .basic_auth("riot", Some(credentials.token.to_owned()))
+//       .send()?
+//   )
+// }
 
 pub fn normalize_champion_name(name: &str) -> String {
   NAME_SPECIAL_REGEX.replace(&name.to_uppercase(), "").into_owned()

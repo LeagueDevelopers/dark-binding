@@ -4,7 +4,6 @@ use std::borrow::Borrow;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use reqwest::Response;
-use serde::ser::Serialize;
 use native_tls::{Certificate, TlsConnector};
 use websocket::{Message, OwnedMessage, WebSocketError};
 use websocket::ClientBuilder;
@@ -110,6 +109,7 @@ impl LeagueClient {
   /// Backs up the existing PersistedSettings.json if it is the default one
   /// ex: doesn't belong to any group
   pub fn backup_config(&self) -> Result<()> {
+    debug!("backing up config");
     let persisted_settings = self.persisted_settings();
     let backup = self.persisted_settings_backup();
 
@@ -126,13 +126,23 @@ impl LeagueClient {
     let current_settings_loc = self.persisted_settings();
     let backup_loc = self.persisted_settings_backup();
 
+    if backup_loc.exists() && !current_settings_loc.exists() {
+      debug!("backup found but no current config");
+
+      fs::copy(&backup_loc, &current_settings_loc)?;
+      fs::remove_file(&backup_loc);
+    }
+
     let real_loc = match current_settings_loc.read_link() {
       Ok(location) => location,
       _ => {
+        debug!("not a symlink, aborting");
         // it's not one of our links, nothing left to do
         return Ok(());
       }
     };
+
+    debug!("restoring currently symlinked config {:?}", real_loc);
 
     // Something went wrong and the backup got deleted, make whatever
     // config is currently loaded the permanent one
@@ -183,15 +193,20 @@ impl LeagueClient {
       _ => return Ok(())
     };
 
-    let mut cfg_file_loc = self.config_folder.join(".dark-binding");
-    let persisted_settings_loc = self.persisted_settings();
+    debug!("loading group name: {:?}", group_name);
 
-    cfg_file_loc.set_file_name(group_name);
+    let mut cfg_file_loc = self.config_folder.join(".dark-binding").join(group_name);
     cfg_file_loc.set_extension("json");
 
+    let persisted_settings_loc = self.persisted_settings();
+
+    debug!("loading champion config {:?}", cfg_file_loc);
+
     if !cfg_file_loc.exists() {
-      ensure_dir(&cfg_file_loc)?;
-      fs::copy(&persisted_settings_loc, &cfg_file_loc);
+      debug!("copying from {:?} to {:?}", persisted_settings_loc, cfg_file_loc);
+
+      ensure_dir(&cfg_file_loc.parent().unwrap())?;
+      fs::copy(&persisted_settings_loc, &cfg_file_loc)?;
     }
 
     self.backup_config()?;
@@ -200,11 +215,12 @@ impl LeagueClient {
       fs::remove_file(&persisted_settings_loc);
     }
 
-    if cfg!(windows) {
-      os::windows::fs::symlink_file(cfg_file_loc, persisted_settings_loc)?;
-    } /*else {
-      os::unix::fs::symlink(cfg_file_loc, persisted_settings_loc)?;
-    }*/
+    debug!("symlinking from {:?} to {:?}", cfg_file_loc, persisted_settings_loc);
+    // if cfg!(windows) {
+    os::windows::fs::symlink_file(cfg_file_loc, persisted_settings_loc).unwrap();
+    // } else {
+      // os::unix::fs::symlink(cfg_file_loc, persisted_settings_loc)?;
+    // }
 
     Ok(())
   }
@@ -253,10 +269,10 @@ impl LeagueClient {
       .and_then(|res| res.error_for_status().map_err(|e| e.into()))
   }
 
-  fn post<T: Serialize>(&self, endpoint: &str, json: &T) -> Result<Response> {
-    base_post(endpoint, &self.credentials, json)
-      .and_then(|res| res.error_for_status().map_err(|e| e.into()))
-  }
+  // fn post<T: Serialize>(&self, endpoint: &str, json: &T) -> Result<Response> {
+  //   base_post(endpoint, &self.credentials, json)
+  //     .and_then(|res| res.error_for_status().map_err(|e| e.into()))
+  // }
 
   fn connect(&mut self, rx: UnboundedReceiver<LeagueClientFn>) -> Result<()> {
     self.update_local_structs();
@@ -314,7 +330,6 @@ impl LeagueClient {
               LeagueClientFn::Message(m) => {
                 self.on_message(m);
               }
-              _ => {}
             };
 
             Ok(())
@@ -350,5 +365,5 @@ impl LeagueClient {
 fn create_default_groups_toml(path: &Path) -> Result<()> {
   ensure_dir(path)?;
 
-  Ok(fs::OpenOptions::new().write(true).create(true).open(path)?.write_all(DEFAULT_GROUPS_TOML)?)
+  Ok(fs::OpenOptions::new().write(true).create(true).open(path.join("groups.toml"))?.write_all(DEFAULT_GROUPS_TOML)?)
 }
